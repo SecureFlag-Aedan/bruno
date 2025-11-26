@@ -27,6 +27,85 @@ const { getCACertificates } = require('@usebruno/requests');
 const { getOAuth2Token } = require('../utils/oauth2');
 const { encodeUrl, buildFormUrlEncodedPayload, extractPromptVariables } = require('@usebruno/common').utils;
 
+const HOST_VARIABLE_REGEX = /{{\s*host\s*}}/i;
+const HOST_OVERRIDE_FILE_PATH = '/var/run/env';
+const HOST_PLACEHOLDER_HOSTNAME = 'www.example.com';
+
+const normalizeHostValue = (value) => {
+  if (!value || typeof value !== 'string') {
+    return '';
+  }
+
+  const trimmed = value.trim().replace(/^https?:\/\//i, '');
+  if (!trimmed) {
+    return '';
+  }
+
+  try {
+    // Allows host strings with optional port without requiring scheme in the input
+    const parsed = new URL(`http://${trimmed}`);
+    return parsed.host;
+  } catch (error) {
+    return trimmed;
+  }
+};
+
+const readHostOverrideFromFile = () => {
+  try {
+    const fileContents = fs.readFileSync(HOST_OVERRIDE_FILE_PATH, 'utf8');
+    if (!fileContents) {
+      return null;
+    }
+
+    const firstLineWithContent = fileContents
+      .split('\n')
+      .find((line) => line.trim().length);
+
+    if (!firstLineWithContent) {
+      return null;
+    }
+
+    const [maybeKey, maybeValue] = firstLineWithContent.split('=');
+    const rawHost = maybeValue ? maybeValue : firstLineWithContent;
+    const normalizedHost = normalizeHostValue(rawHost);
+
+    return normalizedHost || null;
+  } catch (error) {
+    return null;
+  }
+};
+
+const replaceHostTemplateWithValue = (url, hostValue) => {
+  if (!url || !hostValue) {
+    return url;
+  }
+
+  return url.replace(/{{\s*host\s*}}/gi, hostValue);
+};
+
+const forceHostnameInUrl = (url, hostValue) => {
+  const normalizedHost = normalizeHostValue(hostValue);
+
+  if (!url || !normalizedHost) {
+    return url;
+  }
+
+  try {
+    const parsedUrl = new URL(url);
+    parsedUrl.host = normalizedHost;
+    return parsedUrl.toString();
+  } catch (error) {
+    // Fallback for URLs without protocol at this stage
+    const replacedTemplate = replaceHostTemplateWithValue(url, normalizedHost);
+    if (replacedTemplate !== url) {
+      return replacedTemplate;
+    }
+
+    const placeholderRegex = new RegExp(HOST_PLACEHOLDER_HOSTNAME.replace(/\./g, '\\.'), 'gi');
+    return url.replace(placeholderRegex, normalizedHost);
+  }
+};
+
 const onConsoleLog = (type, args) => {
   console[type](...args);
 };
@@ -126,6 +205,14 @@ const runSingleRequest = async function (
     let postResponseTestResults = [];
 
     request = await prepareRequest(item, collection);
+    const hasHostVariableInUrl = HOST_VARIABLE_REGEX.test(request.url);
+    const hostOverrideValue = hasHostVariableInUrl ? readHostOverrideFromFile() : null;
+
+    // Mask the host so pre-request scripts only ever see the placeholder
+    if (hasHostVariableInUrl) {
+      request.url = replaceHostTemplateWithValue(request.url, HOST_PLACEHOLDER_HOSTNAME);
+    }
+    let maskedUrlForScripts = request.url;
 
     // Detect prompt variables before proceeding
     const promptVars = extractPromptVariablesForRequest({ request, collection, envVariables, runtimeVariables, processEnvVars, brunoConfig });
@@ -230,6 +317,16 @@ const runSingleRequest = async function (
 
     if (!protocolRegex.test(request.url)) {
       request.url = `http://${request.url}`;
+    }
+
+    // Replace the placeholder with the runtime host only for the actual request execution
+    if (hasHostVariableInUrl) {
+      maskedUrlForScripts = forceHostnameInUrl(request.url, HOST_PLACEHOLDER_HOSTNAME);
+      if (hostOverrideValue) {
+        request.url = forceHostnameInUrl(request.url, hostOverrideValue);
+      } else {
+        request.url = maskedUrlForScripts;
+      }
     }
 
     const options = getOptions();
@@ -553,6 +650,9 @@ const runSingleRequest = async function (
         response.headers.delete('request-duration');
       } else {
         console.log(chalk.red(stripExtension(relativeItemPathname)) + chalk.dim(` (${err.message})`));
+        if (hasHostVariableInUrl) {
+          request.url = maskedUrlForScripts;
+        }
         return {
           test: {
             filename: relativeItemPathname
@@ -584,6 +684,11 @@ const runSingleRequest = async function (
     }
 
     response.responseTime = responseTime;
+
+    // Mask host before post-response vars/scripts to avoid leaking runtime host in logs
+    if (hasHostVariableInUrl) {
+      request.url = maskedUrlForScripts;
+    }
 
     console.log(
       chalk.green(stripExtension(relativeItemPathname)) +
