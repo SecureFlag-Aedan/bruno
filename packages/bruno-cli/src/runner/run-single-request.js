@@ -698,6 +698,13 @@ const runSingleRequest = async function (
       if (response.config) {
         response.config.url = maskedUrlForScripts;
       }
+      // axios may stash the final URL on the underlying request/response objects; mask those too
+      if (response.request?.res?.responseUrl) {
+        response.request.res.responseUrl = maskedUrlForScripts;
+      }
+      if (response.request?.path) {
+        response.request.path = maskedUrlForScripts;
+      }
     }
 
     console.log(
