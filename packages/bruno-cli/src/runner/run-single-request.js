@@ -702,8 +702,19 @@ const runSingleRequest = async function (
       if (response.request?.res?.responseUrl) {
         response.request.res.responseUrl = maskedUrlForScripts;
       }
-      if (response.request?.path) {
-        response.request.path = maskedUrlForScripts;
+      if (response.request) {
+        try {
+          const parsedMaskedUrl = new URL(maskedUrlForScripts);
+          response.request.protocol = parsedMaskedUrl.protocol;
+          response.request.host = parsedMaskedUrl.host;
+          response.request.path = parsedMaskedUrl.pathname + parsedMaskedUrl.search + parsedMaskedUrl.hash;
+          if (response.request._redirectable && response.request._redirectable._currentUrl) {
+            response.request._redirectable._currentUrl = maskedUrlForScripts;
+          }
+        } catch (err) {
+          // If URL parsing fails, fall back to overwriting the path with the masked URL
+          response.request.path = maskedUrlForScripts;
+        }
       }
     }
 
