@@ -313,15 +313,21 @@ const runSingleRequest = async function (
 
     if (request.settings?.encodeUrl) {
       request.url = encodeUrl(request.url);
+      if (hasHostVariableInUrl) {
+        maskedUrlForScripts = encodeUrl(maskedUrlForScripts);
+      }
     }
 
     if (!protocolRegex.test(request.url)) {
       request.url = `http://${request.url}`;
+      if (hasHostVariableInUrl && !protocolRegex.test(maskedUrlForScripts)) {
+        maskedUrlForScripts = `http://${maskedUrlForScripts}`;
+      }
     }
 
     // Replace the placeholder with the runtime host only for the actual request execution
     if (hasHostVariableInUrl) {
-      maskedUrlForScripts = forceHostnameInUrl(request.url, HOST_PLACEHOLDER_HOSTNAME);
+      maskedUrlForScripts = forceHostnameInUrl(maskedUrlForScripts, HOST_PLACEHOLDER_HOSTNAME);
       if (hostOverrideValue) {
         request.url = forceHostnameInUrl(request.url, hostOverrideValue);
       } else {
