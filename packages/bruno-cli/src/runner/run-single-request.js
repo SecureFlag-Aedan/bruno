@@ -313,15 +313,21 @@ const runSingleRequest = async function (
 
     if (request.settings?.encodeUrl) {
       request.url = encodeUrl(request.url);
+      if (hasHostVariableInUrl) {
+        maskedUrlForScripts = encodeUrl(maskedUrlForScripts);
+      }
     }
 
     if (!protocolRegex.test(request.url)) {
       request.url = `http://${request.url}`;
+      if (hasHostVariableInUrl && !protocolRegex.test(maskedUrlForScripts)) {
+        maskedUrlForScripts = `http://${maskedUrlForScripts}`;
+      }
     }
 
     // Replace the placeholder with the runtime host only for the actual request execution
     if (hasHostVariableInUrl) {
-      maskedUrlForScripts = forceHostnameInUrl(request.url, HOST_PLACEHOLDER_HOSTNAME);
+      maskedUrlForScripts = forceHostnameInUrl(maskedUrlForScripts, HOST_PLACEHOLDER_HOSTNAME);
       if (hostOverrideValue) {
         request.url = forceHostnameInUrl(request.url, hostOverrideValue);
       } else {
@@ -685,9 +691,31 @@ const runSingleRequest = async function (
 
     response.responseTime = responseTime;
 
-    // Mask host before post-response vars/scripts to avoid leaking runtime host in logs
+    // Mask host before post-response vars/scripts/tests to avoid leaking runtime host in logs or assertions
     if (hasHostVariableInUrl) {
       request.url = maskedUrlForScripts;
+      response.url = maskedUrlForScripts;
+      if (response.config) {
+        response.config.url = maskedUrlForScripts;
+      }
+      // axios may stash the final URL on the underlying request/response objects; mask those too
+      if (response.request?.res?.responseUrl) {
+        response.request.res.responseUrl = maskedUrlForScripts;
+      }
+      if (response.request) {
+        try {
+          const parsedMaskedUrl = new URL(maskedUrlForScripts);
+          response.request.protocol = parsedMaskedUrl.protocol;
+          response.request.host = parsedMaskedUrl.host;
+          response.request.path = parsedMaskedUrl.pathname + parsedMaskedUrl.search + parsedMaskedUrl.hash;
+          if (response.request._redirectable && response.request._redirectable._currentUrl) {
+            response.request._redirectable._currentUrl = maskedUrlForScripts;
+          }
+        } catch (err) {
+          // If URL parsing fails, fall back to overwriting the path with the masked URL
+          response.request.path = maskedUrlForScripts;
+        }
+      }
     }
 
     console.log(
