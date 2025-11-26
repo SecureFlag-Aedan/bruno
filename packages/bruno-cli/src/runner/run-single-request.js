@@ -685,9 +685,13 @@ const runSingleRequest = async function (
 
     response.responseTime = responseTime;
 
-    // Mask host before post-response vars/scripts to avoid leaking runtime host in logs
+    // Mask host before post-response vars/scripts/tests to avoid leaking runtime host in logs or assertions
     if (hasHostVariableInUrl) {
       request.url = maskedUrlForScripts;
+      response.url = maskedUrlForScripts;
+      if (response.config) {
+        response.config.url = maskedUrlForScripts;
+      }
     }
 
     console.log(
