@@ -139,12 +139,7 @@ const QueryUrl = ({ item, collection, handleRun }) => {
               onSave();
             }}
           >
-            <IconDeviceFloppy
-              color={hasChanges ? theme.colors.text.yellow : theme.requestTabs.icon.color}
-              strokeWidth={1.5}
-              size={22}
-              className={`${hasChanges ? 'cursor-pointer' : 'cursor-default'}`}
-            />
+            <span style={{ color: item.draft ? theme.colors.text.yellow : theme.requestTabs.icon.color }}>Save</span>
             <span className="infotiptext text-xs">
               Save <span className="shortcut">({saveShortcut})</span>
             </span>
@@ -158,12 +153,7 @@ const QueryUrl = ({ item, collection, handleRun }) => {
               onClick={handleCancelRequest}
             />
           ) : (
-            <IconArrowRight
-              color={theme.requestTabPanel.url.icon}
-              strokeWidth={1.5}
-              size={22}
-              data-testid="send-arrow-icon"
-            />
+            <span style={{ color: theme.requestTabPanel.url.icon }}>Send</span>
           )}
         </div>
       </div>
